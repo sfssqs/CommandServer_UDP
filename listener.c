@@ -8,63 +8,39 @@
 #include <sys/socket.h>
 #include <pthread.h>
 
-#define PORT 		5000            	    // The port which is communicate with server
+#define PORT 		5000
 #define BACKLOG 	10
-#define LENGTH  	512             	// Buffer length
+#define LENGTH  	10
 
+void init();
 void startServer();
-void sender(char *ipAddr, char* command);
+void sender(struct sockaddr_in addr_remote, unsigned char* cmd, int len);
 void *receiver();
+void printip(struct sockaddr_in addr) ;
 
 int sockfd;
 pthread_t recvThread;
 
+struct sockaddr_in addr_local;
+struct sockaddr_in addr_remote;
+
+struct sockaddr_in addr_remote_box;  // T-BOX info
+struct sockaddr_in addr_remote_phone; // Phone info
+
 int main() {
-	///////////////////////////////////  fd opened
-	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
-		printf("ERROR: Failed to obtain Socket Despcritor.\n");
-		return -1;
-	}
-
-	printf("OK: Obtain Socket Despcritor sucessfully.\n");
-
-	////////////////////////////////////
-	//  Start receiver server
+	init();
 	startServer();
-
-	////////////////////////////////////    fd closed
 	close(sockfd);
 
 	return (0);
 }
 
-void startServer() {
-	if (pthread_create(&recvThread, NULL, receiver, NULL) != 0) {
-		printf("receiver thread create failed!/n");
-	} else {
-		printf("receiver thread created!/n");
-	}
-
-	if (recvThread == 0)
-		return;
-
-	pthread_join(recvThread, NULL);
-	printf("recvThread ended!");
-}
-
-void *receiver() {
-	int nsockfd;                    	// New Socket file descriptor
-	int sin_size;                      	// to store struct size
-	char revbuf[LENGTH];          	// Send buffer
-	struct sockaddr_in addr_local;
-	struct sockaddr_in addr_remote;
-
-	/* Get the Socket file descriptor */
+void init() {
 	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {
-		printf("ERROR: Failed to obtain Socket Despcritor.\n");
-		return NULL;
+		printf("ERROR: Failed to obtain Socket Descriptor.\n");
+		return;
 	} else {
-		printf("OK: Obtain Socket Despcritor sucessfully.\n");
+		printf("OK: Obtain Socket Descriptor successfully.\n");
 	}
 
 	/* Fill the local socket address struct */
@@ -77,58 +53,90 @@ void *receiver() {
 	if (bind(sockfd, (struct sockaddr*) &addr_local, sizeof(struct sockaddr))
 			== -1) {
 		printf("ERROR: Failed to bind Port %d.\n", PORT);
-		return NULL;
+		return;
 	} else {
-		printf("OK: Bind the Port %d sucessfully.\n", PORT);
+		printf("OK: Bind the Port %d successfully.\n", PORT);
 	}
+}
+
+void startServer() {
+	if (pthread_create(&recvThread, NULL, receiver, NULL) != 0) {
+		printf("receiver thread create failed!\n");
+	} else {
+		printf("receiver thread created!\n");
+	}
+
+	if (recvThread == 0)
+		return;
+
+	pthread_join(recvThread, NULL);
+	printf("recvThread ended!");
+}
+
+void *receiver() {
+	int sin_size;                      	// to store struct size
+	unsigned char revbuf[LENGTH];          	// Send buffer
 
 	while (1) {
 		sin_size = sizeof(struct sockaddr);
+		memset(revbuf, 0, LENGTH);
 		if (recvfrom(sockfd, revbuf, LENGTH, 0,
 				(struct sockaddr *) &addr_remote, &sin_size) == -1) {
-			printf("ERROR!\n");
+			printf("ERROR: Receive data error!\n");
 		} else {
-			printf("OK: %s.\n", revbuf);
+			printf("OK: Receive data1: 0x%X 0x%X\n", revbuf[0], revbuf[1]);
 
-			// TODO: send command
-			char remoteIp[20];
-			inet_ntop(AF_INET, (void*)&addr_remote.sin_addr, remoteIp, 16);
-			printf("ipAddress : %s | integer : %d\n", remoteIp, addr_remote.sin_addr.s_addr);
+			// From T-BOX
+			if (revbuf[0] == 0xD0) {
+				memset(&addr_remote_box, 0, sizeof(struct sockaddr_in));
+				memcpy(&addr_remote_box, &addr_remote, sizeof(struct sockaddr_in));
 
-			sender(remoteIp, revbuf);
-			// TODO: test code begin
-//			char* ipAddr = "192.168.0.100";
-//			char* command = "server command";
-//			printf("test");
-//			sender(ipAddr, command);
-			// test code end
+//				printip(addr_remote_box);
+			}
+			// From Phone
+			else if (revbuf[0] == 0xD1) {
+//				memset(&addr_remote_phone, 0, sizeof(struct sockaddr_in));
+//				memcpy(&addr_remote_phone, &addr_remote,sizeof(struct sockaddr_in));
+
+				printip(addr_remote_phone);
+				printip(addr_remote_box);
+
+				unsigned char cmd = revbuf[1];
+				sender(addr_remote_box, &cmd, sizeof(cmd));
+			}
 		}
 	}
 
 	pthread_exit(NULL);
 }
 
-void sender(char *ipAddr, char* command) {
+void printip(struct sockaddr_in addr) {
+	char ip[20];
+	int port;
+	inet_ntop(AF_INET, (void*) &addr_remote.sin_addr, ip, 16);
+	port = addr_remote.sin_port;
+	printf("OK: print ip %s : %d\n", ip, port);
+}
+
+void sender(struct sockaddr_in addr_remote, unsigned char* cmd, int len) {
 	int num;                       				// Counter of received bytes
-	char sdbuf[LENGTH];             			// Receive buffer
-	struct sockaddr_in addr_remote;    			// Host address information
-	char sdstr[] = { "EasyARM-iMX283 UDP Experiment." };
 
-	/* Fill the socket address struct */
-	addr_remote.sin_family = AF_INET;          		// Protocol Family
-	addr_remote.sin_port = htons(PORT);          		// Port number
-	inet_pton(AF_INET, ipAddr, &addr_remote.sin_addr); 	// Net Address
-	memset(addr_remote.sin_zero, 0, 8);              // Flush the rest of struct
+	char remoteIp[20];
+	int remotePort;
+	inet_ntop(AF_INET, (void*) &addr_remote.sin_addr, remoteIp, 16);
+	remotePort = addr_remote.sin_port;
 
-	/* Try to connect the server */
-	memset(sdbuf, 0, LENGTH);
-	num = sendto(sockfd, sdstr, strlen(sdstr), 0,
-			(struct sockaddr *) &addr_remote, sizeof(struct sockaddr_in));
+	printip(addr_remote);
+
+	num = sendto(sockfd, cmd, len, 0, (struct sockaddr *) &addr_remote,
+			sizeof(struct sockaddr_in));
+
 	if (num < 0) {
 		printf("ERROR: Failed to send your data!\n");
 	} else {
-		printf("OK: Sent to %s total %d bytes !\n", ipAddr, num);
-		printf("OK: Sent command : %s!\n", command);
+		printf("OK: Sent to %s : %d total %d bytes !\n", remoteIp, remotePort,
+				num);
+		printf("OK: Sent command : 0x%X\n", cmd[0]);
 	}
 }
 

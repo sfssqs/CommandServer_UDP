@@ -9,14 +9,13 @@
 #include <pthread.h>
 
 #define PORT 		5000
-#define BACKLOG 	10
 #define LENGTH  	10
 
 void init();
 void startServer();
 void sender(struct sockaddr_in addr_remote, unsigned char* cmd, int len);
 void *receiver();
-void printip(struct sockaddr_in addr) ;
+void printip(struct sockaddr_in addr);
 
 int sockfd;
 pthread_t recvThread;
@@ -31,7 +30,6 @@ int main() {
 	init();
 	startServer();
 	close(sockfd);
-
 	return (0);
 }
 
@@ -61,16 +59,16 @@ void init() {
 
 void startServer() {
 	if (pthread_create(&recvThread, NULL, receiver, NULL) != 0) {
-		printf("receiver thread create failed!\n");
+		printf("OK: Receiver thread create failed!\n");
 	} else {
-		printf("receiver thread created!\n");
+		printf("OK: Receiver thread created!\n");
 	}
 
 	if (recvThread == 0)
 		return;
 
 	pthread_join(recvThread, NULL);
-	printf("recvThread ended!");
+	printf("Attention:  RecvThread Ended!\n");
 }
 
 void *receiver() {
@@ -80,30 +78,33 @@ void *receiver() {
 	while (1) {
 		sin_size = sizeof(struct sockaddr);
 		memset(revbuf, 0, LENGTH);
+
+		printf("\n");
+		printf("=========================\n");
+		printf("OK: Listening ... \n");
+
 		if (recvfrom(sockfd, revbuf, LENGTH, 0,
 				(struct sockaddr *) &addr_remote, &sin_size) == -1) {
 			printf("ERROR: Receive data error!\n");
-		} else {
-			printf("OK: Receive data1: 0x%X 0x%X\n", revbuf[0], revbuf[1]);
+		} else
+			printf("OK: Receive data: 0x%X 0x%X\n", revbuf[0], revbuf[1]);
 
-			// From T-BOX
-			if (revbuf[0] == 0xD0) {
-				memset(&addr_remote_box, 0, sizeof(struct sockaddr_in));
-				memcpy(&addr_remote_box, &addr_remote, sizeof(struct sockaddr_in));
+		printip(addr_remote);
 
-//				printip(addr_remote_box);
-			}
-			// From Phone
-			else if (revbuf[0] == 0xD1) {
-//				memset(&addr_remote_phone, 0, sizeof(struct sockaddr_in));
-//				memcpy(&addr_remote_phone, &addr_remote,sizeof(struct sockaddr_in));
+		// From T-BOX
+		if (revbuf[0] == 0xD0) {
+			memset(&addr_remote_box, 0, sizeof(struct sockaddr_in));
+			memcpy(&addr_remote_box, &addr_remote, sizeof(struct sockaddr_in));
+		}
 
-				printip(addr_remote_phone);
-				printip(addr_remote_box);
+		// From Phone
+		else if (revbuf[0] == 0xD1) {
+			memset(&addr_remote_phone, 0, sizeof(struct sockaddr_in));
+			memcpy(&addr_remote_phone, &addr_remote,
+					sizeof(struct sockaddr_in));
 
-				unsigned char cmd = revbuf[1];
-				sender(addr_remote_box, &cmd, sizeof(cmd));
-			}
+			unsigned char cmd = revbuf[1];
+			sender(addr_remote_box, &cmd, sizeof(cmd));
 		}
 	}
 
@@ -113,9 +114,9 @@ void *receiver() {
 void printip(struct sockaddr_in addr) {
 	char ip[20];
 	int port;
-	inet_ntop(AF_INET, (void*) &addr_remote.sin_addr, ip, 16);
-	port = addr_remote.sin_port;
-	printf("OK: print ip %s : %d\n", ip, port);
+	inet_ntop(AF_INET, (void*) &addr.sin_addr, ip, 16);
+	port = addr.sin_port;
+	printf("OK: Print IP %s : %d\n", ip, port);
 }
 
 void sender(struct sockaddr_in addr_remote, unsigned char* cmd, int len) {
@@ -125,8 +126,6 @@ void sender(struct sockaddr_in addr_remote, unsigned char* cmd, int len) {
 	int remotePort;
 	inet_ntop(AF_INET, (void*) &addr_remote.sin_addr, remoteIp, 16);
 	remotePort = addr_remote.sin_port;
-
-	printip(addr_remote);
 
 	num = sendto(sockfd, cmd, len, 0, (struct sockaddr *) &addr_remote,
 			sizeof(struct sockaddr_in));
